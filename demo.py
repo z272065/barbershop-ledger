@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""一键演示:从 schema.sql 现建内存库,26 个场景覆盖全部 18 条数据库拦截规则。
+"""一键演示:从 schema.sql 现建内存库,27 个场景覆盖全部 18 条数据库拦截规则。
 
 判据:拦截场景要求报错文案与预期完全一致(不只是"被拦")——删掉或改坏任何一条规则,
 对应场景立刻变红;放行场景要求成功落账。
@@ -29,10 +29,11 @@ def build(window_open=True):
 
 con = build(True)
 PASSED = 0
+TOTAL = 0
 
 def shot(sql, label, expect, expect_text=None, c=None):
     """expect='放' 要求落账成功;expect='拦' 要求报错文案与 expect_text 完全一致"""
-    global PASSED
+    global PASSED,TOTAL
     c = c or con
     try:
         c.execute(sql); got = '放行'
@@ -41,6 +42,7 @@ def shot(sql, label, expect, expect_text=None, c=None):
         got = '拦: ' + e.args[0]
         ok = expect == '拦' and e.args[0] == expect_text
     PASSED += ok
+    TOTAL += 1
     print(f"{'PASS' if ok else 'FAIL'} [{label}] 预期{expect}" + (f'「{expect_text}」' if expect == '拦' else '') + f' -> {got}')
 
 def bal(name, c=None):
@@ -154,11 +156,14 @@ shot("delete from tx_types", '㉕ 删除类型字典', '拦', '操作类型表�
 shot(f"insert into transactions(type,member_id,amount,balance_delta,request_id,occurred_at) "
      f"values('赠送',{M % '李强'},0,80,'GIFT000001','2026-10-22 11:00:00')",
      '㉖ 字典外自造类型(赠送已并入充值差值)', '拦', '未知的操作类型')
+shot(f"insert into transactions(type,member_id,amount,balance_delta,request_id,occurred_at) "
+     f"values('充值',{M % '李强'},0,50,'ZER00001','2026-10-26 12:00:00')",
+     '㉗ 充值金额为 0','拦','充值金额必须大于0/充值到账金额不能少于实收')
 
 total = con.execute("select count(*), sum(case when reverses_id is null then 1 else -1 end) from transactions").fetchone()
 print()
-print(f'对账:流水 {total[0]} 行,有效笔数(正行-红字)= {total[1]},场景通过 {PASSED}/26')
-if PASSED == 26 and bal('王芳') == 0 and bal('李强') == 10000:
+print(f'对账:流水 {total[0]} 行,有效笔数(正行-红字)= {total[1]},场景通过 {PASSED}/{TOTAL}')
+if PASSED == TOTAL and bal("王芳") == 0 and bal("李强") == 10000:
     print('全部通过:18 条拦截规则各有一个文案精确核对的场景,任何一条被删改,对应场景即变红。')
 else:
     print('!! 有场景失败或对账不符')
