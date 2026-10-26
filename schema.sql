@@ -1,13 +1,8 @@
 -- 理发店会员系统 建库脚本 schema.sql
--- 结构=第五版终稿,2026-10-19 从 shop1.db 实际结构原样导出(建表语句即你手写原文)
--- 触发器=2026-10-24 收尾场终版,共七条:三禁删+未知类型兜底+trg_rule 九句+trg_opening(期初)+trg_reverse(红字镜像);四件修复=L2 门票+金额方向(野生红字)/期初拆独立读时钟(倒填免疫)/红字拆独立+文案拆三句/新增 occurred_at<=recorded_at
--- 割接日常量在 trg_opening 第二句(现占位 2026-12-15),定档后改这一处重装该触发器;建库前先验 SQLite>=3.37(STRICT 要求)
--- 用法:DB Browser 新建一个空库 -> Execute SQL 标签页 -> 整个文件内容贴进去 -> 执行
--- 顺序说明:
---   ① 建表按"先父后子":members/services/tx_types 先建,transactions 最后(它的外键引用前三张表)
---   ② tx_types 的 4 行数据必须先就位,今后才允许往 transactions 插业务数据(外键检查在插数据那一刻才发生,建表时不查)
--- 提醒:外键执法开关(PAGMA 不写错字:PRAGMA foreign_keys=ON)是每个连接自己的事,
---      跑完本脚本后,以后每次连库(含将来后端代码)第一句都要 PRAGMA foreign_keys=ON
+-- 内容:四张 STRICT 表 + 类型字典数据 + 三条索引 + 七条触发器(三禁删/未知类型兜底/trg_rule 九句/trg_opening/trg_reverse)
+-- 依赖:SQLite >= 3.37(STRICT 要求);建库后每次连接需 PRAGMA foreign_keys=ON,生产端连接另加 PRAGMA recursive_triggers=ON
+-- 用法:在空库上整文件执行;建表顺序已按依赖排好(先父后子),tx_types 字典数据随脚本就位,随后即可插入业务数据
+-- 迁移窗口日常量在 trg_opening 第二臂(当前占位 '2026-12-15'),正式定档后改此常量并重建该触发器
 
 CREATE TABLE members (
     id integer primary key,

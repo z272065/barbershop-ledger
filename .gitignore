@@ -1,20 +1,11 @@
-# 本地数据库与工具工程文件(真实经营数据,永不入库)
-*.db
-*.sqbpro
+# 白名单模式:默认忽略本目录一切文件,只放行下列已登记文件。
+# 新增要公开的文件,必须在此登记一行(!文件名),防止真实数据/本机文件误入版本库。
+*
 
-# 13 年真实流水备份目录(隐私红线)
-备份_*/
-
-# 内部文档:完整设计底稿与评审记录(公开版见 DESIGN.md)
-项目设计.md
-数据库结构与触发器-Claude评审清单.md
-建仓决策-Claude评审清单.md
-
-# 课程判卷/演示脚本(依赖本地真库副本,公开演示入口是 demo.py)
-smoke_test.py
-realdb_apply_test.py
-backend_rules_demo.py
-
-# 系统文件
-Thumbs.db
-.DS_Store
+# 公开文件(逐个登记)
+!.gitignore
+!README.md
+!DESIGN.md
+!schema.sql
+!demo.py
+!tx_idempotency_test.py
