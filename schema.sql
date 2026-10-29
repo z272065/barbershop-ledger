@@ -55,6 +55,9 @@ CREATE UNIQUE INDEX idx_member on transactions(member_id) where type='迁移期�
 
 CREATE UNIQUE INDEX idx_reverses on transactions(reverses_id) WHERE reverses_id is not NULL;
 
+CREATE VIEW v_balance as
+SELECT member_id,name,sum(balance_delta)as balance FROM transactions INNER JOIN members on transactions.member_id=members.id GROUP by member_id,name;
+
 create trigger trg_no_del_memb before delete on members
 begin
 select raise(abort,'会员表禁止删除');
