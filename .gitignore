@@ -9,3 +9,5 @@
 !schema.sql
 !demo.py
 !tx_idempotency_test.py
+!models.py
+!backup_shop.py
