@@ -2,7 +2,7 @@
 -- 内容:五张 STRICT 表 + 类型字典数据 + 三条索引 + 七条触发器(三禁删/未知类型兜底/trg_rule 九句/trg_opening/trg_reverse)
 -- 依赖:SQLite >= 3.37(STRICT 要求);建库后每次连接需 PRAGMA foreign_keys=ON,生产端连接另加 PRAGMA recursive_triggers=ON
 -- 用法:在空库上整文件执行;建表顺序已按依赖排好(先父后子),tx_types 字典数据随脚本就位,随后即可插入业务数据
--- 迁移窗口日常量在 trg_opening 第二臂(当前占位 '2026-12-15'),正式定档后改此常量并重建该触发器
+-- 迁移窗口日常量在 trg_opening 第二臂(当前占位 '2026-11-15'),正式定档后改此常量并重建该触发器
 
 CREATE TABLE members (
     id integer primary key,
@@ -103,7 +103,7 @@ create trigger trg_opening before insert on transactions
 when new.type='迁移期初'
 begin
 select case when (select count(*)>0 from transactions where member_id=new.member_id) then raise(abort,'此人已有流水,期初必须是第一笔') end;
-select case when date('now','+8 hours')>'2026-12-15' then raise(abort,'迁移期初窗口已关') end;
+select case when date('now','+8 hours')>'2026-11-15' then raise(abort,'迁移期初窗口已关') end;
 end;
 
 create trigger trg_reverse before insert on transactions
