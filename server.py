@@ -1,5 +1,4 @@
 from pathlib import Path
-
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import create_engine, event, select, func
 from pydantic import BaseModel
@@ -20,6 +19,11 @@ class RechargeRequest(BaseModel):
     phone: str | None = None
     request_id: str
     amount: int
+
+
+class ChexiaoRequest(BaseModel):
+    reverses_id:int
+    request_id:str
 
 
 DB_PATH = Path(__file__).resolve().parent / "practice3.db"
@@ -177,6 +181,37 @@ def daozhang(amount: int):
         bonus = amount * rate // 100
         daozhang = amount + bonus
     return {"zengsongfen": bonus, "daozhangfen": daozhang}
+
+@app.post("/void")
+def chexiao(cx:ChexiaoRequest):
+    with Session(engine) as s:
+        exist=s.scalar(select(Transaction).where(Transaction.request_id==cx.request_id))
+        if exist is not None:
+            personyuefen=s.scalar(select(func.sum(Transaction.balance_delta)).where(Transaction.member_id==exist.member_id))
+            return {"personyuefen":personyuefen}
+        else:
+            ab=s.scalar(select(Transaction).where(Transaction.id==cx.reverses_id))
+            if ab is None:
+                raise HTTPException(404,detail=f"没有{cx.reverses_id}这个流水")
+            t=Transaction(
+                type=ab.type,
+                member_id=ab.member_id,
+                price_snapshot=ab.price_snapshot,
+                occurred_at=ab.occurred_at,
+                amount=-ab.amount,
+                balance_delta=-ab.balance_delta,
+                request_id=cx.request_id,
+                reverses_id=cx.reverses_id,
+                service_id=ab.service_id
+            )
+            try:
+                s.add(t)
+                s.commit()
+            except IntegrityError as e:
+                raise HTTPException(400, detail=e.orig.args[0])
+            exist=s.scalar(select(Transaction).where(Transaction.request_id==cx.request_id))
+            personyuefen=s.scalar(select(func.sum(Transaction.balance_delta)).where(Transaction.member_id==ab.member_id))
+            return {"personyuefen":personyuefen}
 
 
 if __name__ == "__main__":

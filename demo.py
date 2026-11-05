@@ -18,12 +18,15 @@ assert sqlite3.sqlite_version_info >= (3, 37, 0), f'STRICT 需要 SQLite>=3.37,�
 with open('schema.sql', encoding='utf-8') as f:
     SCHEMA = f.read()
 
+KEY = "date('now','+8 hours')>"
+WINDOW = SCHEMA.split(KEY)[1].split("'")[1]
+
 def build(window_open=True):
     """建内存库;window_open=False 时把期初窗口常量调到过去,演示窗口已关"""
     day = "'2099-12-31'" if window_open else "'2000-01-01'"
     con = sqlite3.connect(':memory:', isolation_level=None)
     con.execute('PRAGMA foreign_keys=ON')
-    con.executescript(SCHEMA.replace("'2026-12-15'", day))
+    con.executescript(SCHEMA.replace("'" + WINDOW + "'", day))
     con.execute("insert into services(name,price) values('剪发',1000)")  # 10.00 元,金额一律整数分
     return con
 
