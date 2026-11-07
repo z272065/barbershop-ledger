@@ -43,7 +43,8 @@ app = FastAPI()
 def find_members(last4: str):
     with Session(engine) as s:
         li = []
-
+        if len(last4) != 4 or not last4.isdigit():
+            raise HTTPException(400, detail="这不是后四位手机尾号")
         people = s.scalars(select(Member).where(Member.phone.like("%" + last4))).all()
         for person in people:
             bal = s.scalar(
@@ -70,6 +71,9 @@ def cost(conque: ConsumeRequest):
             select(Transaction).where(Transaction.request_id == conque.request_id)
         )
         if exist is None:
+            people = s.scalar(select(Member).where(Member.id == conque.member_id))
+            if people is None:
+                raise HTTPException(404, detail=f"没有{conque.member_id}这个会员")
             bal = s.scalar(
                 select(func.sum(Transaction.balance_delta)).where(
                     Transaction.member_id == conque.member_id
@@ -101,7 +105,7 @@ def cost(conque: ConsumeRequest):
         else:
             bal = s.scalar(
                 select(func.sum(Transaction.balance_delta)).where(
-                    Transaction.member_id == conque.member_id
+                    Transaction.member_id == exist.member_id
                 )
             )
             return {"personyuefen": bal}
@@ -127,7 +131,9 @@ def list_transactions(member_id: int | None = None):
                     "balance_delta": r.balance_delta,
                     "occurred_at": r.occurred_at,
                     "reverses_id": r.reverses_id,
-                    "name": s.scalar(select(Member).where(Member.id == r.member_id)).name,
+                    "name": s.scalar(
+                        select(Member).where(Member.id == r.member_id)
+                    ).name,
                 }
                 li.append(t)
             return li
@@ -223,6 +229,8 @@ def recharge(conque: RechargeRequest):
 @app.get("/recharge_preview")
 def daozhang(amount: int):
     with Session(engine) as s:
+        if amount <= 0:
+            raise HTTPException(400, detail="充值金额必须大于0")
         rate = int(
             s.scalar(select(Setting.value).where(Setting.key == "recharge_bonus_rate"))
         )
