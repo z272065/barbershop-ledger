@@ -22,8 +22,8 @@ class RechargeRequest(BaseModel):
 
 
 class ChexiaoRequest(BaseModel):
-    reverses_id:int
-    request_id:str
+    reverses_id: int
+    request_id: str
 
 
 DB_PATH = Path(__file__).resolve().parent / "practice3.db"
@@ -94,8 +94,8 @@ def cost(conque: ConsumeRequest):
                     s.commit()
                 except IntegrityError as e:
                     raise HTTPException(400, detail=e.orig.args[0])
-                yuedict = {"personyuefen": bal - conque.amount}
-                return yuedict
+                return {"personyuefen": bal - conque.amount}
+
             else:
                 raise HTTPException(400, detail=f"余额不足,还有{bal}分")
         else:
@@ -104,8 +104,56 @@ def cost(conque: ConsumeRequest):
                     Transaction.member_id == conque.member_id
                 )
             )
-            yuedict = {"personyuefen": bal}
-            return yuedict
+            return {"personyuefen": bal}
+
+
+@app.get("/transactions")
+def list_transactions(member_id: int | None = None):
+    with Session(engine) as s:
+        li = []
+        st = []
+        today = now_bj()[:10]
+        if member_id is None:
+            all_rows = s.scalars(
+                select(Transaction)
+                .where(Transaction.occurred_at >= today)
+                .order_by(Transaction.id.desc())
+            ).all()
+            for r in all_rows:
+                t = {
+                    "id": r.id,
+                    "type": r.type,
+                    "amount": r.amount,
+                    "balance_delta": r.balance_delta,
+                    "occurred_at": r.occurred_at,
+                    "reverses_id": r.reverses_id,
+                    "name": s.scalar(select(Member).where(Member.id == r.member_id)).name,
+                }
+                li.append(t)
+            return li
+        else:
+            rows = s.scalars(select(Member).where(Member.id == member_id)).all()
+            if not rows:
+                raise HTTPException(404, detail=f"没有编号为{member_id}的会员")
+            else:
+                peopletransactions = s.scalars(
+                    select(Transaction)
+                    .where(Transaction.member_id == member_id)
+                    .order_by(Transaction.id.desc())
+                ).all()
+                me = s.scalar(select(Member).where(Member.id == member_id))
+                for p in peopletransactions:
+                    t = {
+                        "id": p.id,
+                        "type": p.type,
+                        "amount": p.amount,
+                        "balance_delta": p.balance_delta,
+                        "occurred_at": p.occurred_at,
+                        "reverses_id": p.reverses_id,
+                        "name": me.name,
+                    }
+                    st.append(t)
+                return st
 
 
 @app.post("/recharge")
@@ -182,18 +230,25 @@ def daozhang(amount: int):
         daozhang = amount + bonus
     return {"zengsongfen": bonus, "daozhangfen": daozhang}
 
+
 @app.post("/void")
-def chexiao(cx:ChexiaoRequest):
+def chexiao(cx: ChexiaoRequest):
     with Session(engine) as s:
-        exist=s.scalar(select(Transaction).where(Transaction.request_id==cx.request_id))
+        exist = s.scalar(
+            select(Transaction).where(Transaction.request_id == cx.request_id)
+        )
         if exist is not None:
-            personyuefen=s.scalar(select(func.sum(Transaction.balance_delta)).where(Transaction.member_id==exist.member_id))
-            return {"personyuefen":personyuefen}
+            personyuefen = s.scalar(
+                select(func.sum(Transaction.balance_delta)).where(
+                    Transaction.member_id == exist.member_id
+                )
+            )
+            return {"personyuefen": personyuefen}
         else:
-            ab=s.scalar(select(Transaction).where(Transaction.id==cx.reverses_id))
+            ab = s.scalar(select(Transaction).where(Transaction.id == cx.reverses_id))
             if ab is None:
-                raise HTTPException(404,detail=f"没有{cx.reverses_id}这个流水")
-            t=Transaction(
+                raise HTTPException(404, detail=f"没有{cx.reverses_id}这个流水")
+            t = Transaction(
                 type=ab.type,
                 member_id=ab.member_id,
                 price_snapshot=ab.price_snapshot,
@@ -202,16 +257,19 @@ def chexiao(cx:ChexiaoRequest):
                 balance_delta=-ab.balance_delta,
                 request_id=cx.request_id,
                 reverses_id=cx.reverses_id,
-                service_id=ab.service_id
+                service_id=ab.service_id,
             )
             try:
                 s.add(t)
                 s.commit()
             except IntegrityError as e:
                 raise HTTPException(400, detail=e.orig.args[0])
-            exist=s.scalar(select(Transaction).where(Transaction.request_id==cx.request_id))
-            personyuefen=s.scalar(select(func.sum(Transaction.balance_delta)).where(Transaction.member_id==ab.member_id))
-            return {"personyuefen":personyuefen}
+            personyuefen = s.scalar(
+                select(func.sum(Transaction.balance_delta)).where(
+                    Transaction.member_id == ab.member_id
+                )
+            )
+            return {"personyuefen": personyuefen}
 
 
 if __name__ == "__main__":
