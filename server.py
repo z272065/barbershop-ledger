@@ -26,6 +26,11 @@ class ChexiaoRequest(BaseModel):
     request_id: str
 
 
+class QinglingRequest(BaseModel):
+    member_id: int
+    request_id: str
+
+
 DB_PATH = Path(__file__).resolve().parent / "practice3.db"
 engine = create_engine(f"sqlite:///{DB_PATH}")
 
@@ -34,6 +39,12 @@ engine = create_engine(f"sqlite:///{DB_PATH}")
 def _pragmas(dbapi_connection, connection_record):
     dbapi_connection.execute("PRAGMA foreign_keys=ON")
     dbapi_connection.execute("PRAGMA recursive_triggers=ON")
+    dbapi_connection.isolation_level = None
+
+
+@event.listens_for(engine, "begin")
+def _begin(conn):
+    conn.exec_driver_sql("BEGIN IMMEDIATE")
 
 
 app = FastAPI()
@@ -103,9 +114,16 @@ def cost(conque: ConsumeRequest):
             else:
                 raise HTTPException(400, detail=f"余额不足,还有{bal}分")
         else:
+            if (
+                exist.type != "消费"
+                or exist.reverses_id is not None
+                or exist.member_id != conque.member_id
+            ):
+                raise HTTPException(409, detail="和第一次请求不是一个操作")
             bal = s.scalar(
                 select(func.sum(Transaction.balance_delta)).where(
-                    Transaction.member_id == exist.member_id
+                    Transaction.member_id == exist.member_id,
+                    Transaction.id <= exist.id,
                 )
             )
             return {"personyuefen": bal}
@@ -216,9 +234,19 @@ def recharge(conque: RechargeRequest):
                 raise HTTPException(400, detail=e.orig.args[0])
             return {"personyuefen": balance + delta, "personid": person_id}
         else:
+            if exist.type != "充值" or exist.reverses_id is not None:
+                raise HTTPException(409, detail="和第一次请求不是一个操作")
+            if conque.member_id is not None:
+                if exist.member_id != conque.member_id:
+                    raise HTTPException(409, detail="和第一次请求不是一个操作")
+            else:
+                first = s.scalar(select(Member).where(Member.id == exist.member_id))
+                if conque.name != first.name or conque.phone != first.phone:
+                    raise HTTPException(409, detail="和第一次请求不是一个操作")
             balance = s.scalar(
                 select(func.sum(Transaction.balance_delta)).where(
-                    Transaction.member_id == exist.member_id
+                    Transaction.member_id == exist.member_id,
+                    Transaction.id <= exist.id,
                 )
             )
             if balance is None:
@@ -246,9 +274,12 @@ def chexiao(cx: ChexiaoRequest):
             select(Transaction).where(Transaction.request_id == cx.request_id)
         )
         if exist is not None:
+            if exist.reverses_id != cx.reverses_id:
+                raise HTTPException(409, detail="和第一次请求不是一个操作")
             personyuefen = s.scalar(
                 select(func.sum(Transaction.balance_delta)).where(
-                    Transaction.member_id == exist.member_id
+                    Transaction.member_id == exist.member_id,
+                    Transaction.id <= exist.id,
                 )
             )
             return {"personyuefen": personyuefen}
@@ -278,6 +309,47 @@ def chexiao(cx: ChexiaoRequest):
                 )
             )
             return {"personyuefen": personyuefen}
+
+
+@app.post("/refund")
+def qingling(zero: QinglingRequest):
+    with Session(engine) as s:
+        bal = s.scalar(
+            select(func.sum(Transaction.balance_delta)).where(
+                Transaction.member_id == zero.member_id
+            )
+        )
+        mideng = s.scalar(
+            select(Transaction).where(Transaction.request_id == zero.request_id)
+        )
+        if mideng is not None:
+            if (
+                mideng.member_id != zero.member_id
+                or mideng.type != "退卡"
+                or mideng.reverses_id is not None
+            ):
+                raise HTTPException(409, detail="和第一次请求不是一个操作")
+            return {"personyuefen": 0}
+        else:
+            people = s.scalar(select(Member).where(Member.id == zero.member_id))
+            if people is None:
+                raise HTTPException(404, detail=f"不存在{zero.member_id}这个会员")
+            if bal == 0:
+                raise HTTPException(400, detail="余额已经为0")
+            t = Transaction(
+                type="退卡",
+                amount=0,
+                balance_delta=-bal,
+                request_id=zero.request_id,
+                occurred_at=now_bj(),
+                member_id=zero.member_id,
+            )
+            try:
+                s.add(t)
+                s.commit()
+            except IntegrityError as e:
+                raise HTTPException(400, detail=e.orig.args[0])
+            return {"personyuefen": 0}
 
 
 if __name__ == "__main__":
