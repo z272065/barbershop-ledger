@@ -78,13 +78,35 @@ def require_login(session: str | None = Cookie(default=None)):
         return {"detail": "通过"}
 
 
+def get_bonus_rate(s):
+    raw = s.scalar(
+        select(Setting.value).where(Setting.key == "recharge_bonus_rate")
+    )
+    if raw is None or not (raw.isascii() and raw.isdigit()):
+        raise HTTPException(400, detail="充值赠送率配置缺失或非法")
+    rate = int(raw)
+    if not 0 <= rate <= 100:
+        raise HTTPException(400, detail="充值赠送率必须在0到100之间")
+    return rate
+
+
 @app.get("/members", dependencies=[Depends(require_login)])
-def find_members(last4: str):
+def find_members(last4: str | None = None, name: str | None = None):
     with Session(engine) as s:
         li = []
-        if len(last4) != 4 or not last4.isdigit():
-            raise HTTPException(400, detail="这不是后四位手机尾号")
-        people = s.scalars(select(Member).where(Member.phone.like("%" + last4))).all()
+        if last4 is None and name is None:
+            raise HTTPException(400, detail="手机尾号和姓名至少要填一个")
+        stmt = select(Member)
+        if last4 is not None:
+            if not (last4.isascii() and last4.isdigit() and len(last4) == 4):
+                raise HTTPException(400, detail="这不是后四位手机尾号")
+            stmt = stmt.where(Member.phone.like("%" + last4))
+        if name is not None:
+            name = name.strip()
+            if name == "":
+                raise HTTPException(400, detail="姓名不能为空")
+            stmt = stmt.where(Member.name.like("%" + name + "%"))
+        people = s.scalars(stmt).all()
         for person in people:
             bal = s.scalar(
                 select(func.sum(Transaction.balance_delta)).where(
@@ -170,6 +192,7 @@ def list_transactions(member_id: int | None = None):
                 .order_by(Transaction.id.desc())
             ).all()
             for r in all_rows:
+                person = s.scalar(select(Member).where(Member.id == r.member_id))
                 t = {
                     "id": r.id,
                     "type": r.type,
@@ -177,9 +200,9 @@ def list_transactions(member_id: int | None = None):
                     "balance_delta": r.balance_delta,
                     "occurred_at": r.occurred_at,
                     "reverses_id": r.reverses_id,
-                    "name": s.scalar(
-                        select(Member).where(Member.id == r.member_id)
-                    ).name,
+                    "member_id": r.member_id,
+                    "name": person.name,
+                    "phone": person.phone,
                 }
                 li.append(t)
             return li
@@ -202,7 +225,9 @@ def list_transactions(member_id: int | None = None):
                         "balance_delta": p.balance_delta,
                         "occurred_at": p.occurred_at,
                         "reverses_id": p.reverses_id,
+                        "member_id": member_id,
                         "name": me.name,
+                        "phone": me.phone,
                     }
                     st.append(t)
                 return st
@@ -222,20 +247,20 @@ def recharge(conque: RechargeRequest):
                 if person_id is None:
                     raise HTTPException(404, detail=f"没有{conque.member_id}这个会员")
             else:
-                if conque.name is None or conque.phone is None:
-                    raise HTTPException(400, detail="新顾客没填姓名或电话")
+                name = (conque.name or "").strip()
+                phone = (conque.phone or "").strip()
+                if name == "":
+                    raise HTTPException(400, detail="新顾客姓名不能为空")
+                if not (phone.isascii() and phone.isdigit() and len(phone) == 11):
+                    raise HTTPException(400, detail="新顾客手机号必须是11位纯数字")
                 person = Member(
-                    name=conque.name, phone=conque.phone, created_at=now_bj()
+                    name=name, phone=phone, created_at=now_bj()
                 )
                 s.add(person)
                 s.flush()
                 person_id = person.id
 
-            rate = int(
-                s.scalar(
-                    select(Setting.value).where(Setting.key == "recharge_bonus_rate")
-                )
-            )
+            rate = get_bonus_rate(s)
             amount = conque.amount
             bonus = amount * rate // 100
             delta = amount + bonus
@@ -269,7 +294,9 @@ def recharge(conque: RechargeRequest):
                     raise HTTPException(409, detail="和第一次请求不是一个操作")
             else:
                 first = s.scalar(select(Member).where(Member.id == exist.member_id))
-                if conque.name != first.name or conque.phone != first.phone:
+                name = (conque.name or "").strip()
+                phone = (conque.phone or "").strip()
+                if name != first.name or phone != first.phone:
                     raise HTTPException(409, detail="和第一次请求不是一个操作")
             balance = s.scalar(
                 select(func.sum(Transaction.balance_delta)).where(
@@ -287,9 +314,7 @@ def daozhang(amount: int):
     with Session(engine) as s:
         if amount <= 0:
             raise HTTPException(400, detail="充值金额必须大于0")
-        rate = int(
-            s.scalar(select(Setting.value).where(Setting.key == "recharge_bonus_rate"))
-        )
+        rate = get_bonus_rate(s)
         bonus = amount * rate // 100
         daozhang = amount + bonus
     return {"zengsongfen": bonus, "daozhangfen": daozhang}
