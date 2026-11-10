@@ -1,5 +1,5 @@
 -- 理发店会员系统 建库脚本 schema.sql
--- 内容:五张 STRICT 表 + 类型字典数据 + 三条索引 + 七条触发器(三禁删/未知类型兜底/trg_rule 九句/trg_opening/trg_reverse)
+-- 内容:六张 STRICT 表 + 类型字典数据 + 三条索引 + 七条触发器(三禁删/未知类型兜底/trg_rule 九句/trg_opening/trg_reverse)
 -- 依赖:SQLite >= 3.37(STRICT 要求);建库后每次连接需 PRAGMA foreign_keys=ON,生产端连接另加 PRAGMA recursive_triggers=ON
 -- 用法:在空库上整文件执行;建表顺序已按依赖排好(先父后子),tx_types 字典数据随脚本就位,随后即可插入业务数据
 -- 迁移窗口日常量在 trg_opening 第二臂(当前占位 '2026-11-15'),正式定档后改此常量并重建该触发器
@@ -46,6 +46,12 @@ CREATE TABLE transactions(
 	CONSTRAINT chk_occedat CHECK (datetime(occurred_at) is occurred_at),
 	CONSTRAINT chk_reqlen CHECK (length(request_id)>=8),
 	CONSTRAINT chk_recedat CHECK(datetime(recorded_at) is recorded_at)
+)STRICT;
+
+CREATE TABLE sessions(
+    token text primary key,
+    expires_at text not null,
+    CONSTRAINT chk_sess_exp CHECK(datetime(expires_at) is expires_at)
 )STRICT;
 
 insert into tx_types (name) values

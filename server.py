@@ -1,10 +1,26 @@
+import bcrypt
+import secrets
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response, Depends, Cookie
 from sqlalchemy import create_engine, event, select, func
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from models import Member, Transaction, Service, Setting, now_bj
+from models import Member, Transaction, Service, Setting, LoginSession, now_bj
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from datetime import datetime, timezone, timedelta
+
+
+class AppConfig(BaseSettings):
+    shop_password_hash: str
+    model_config = SettingsConfigDict(env_file=".env")
+
+
+config = AppConfig()
+
+
+class DengluRequest(BaseModel):
+    password: str
 
 
 class ConsumeRequest(BaseModel):
@@ -50,7 +66,19 @@ def _begin(conn):
 app = FastAPI()
 
 
-@app.get("/members")
+def require_login(session: str | None = Cookie(default=None)):
+    if session is None:
+        raise HTTPException(401, detail="未登录")
+    with Session(engine) as s:
+        exist = s.scalar(select(LoginSession).where(LoginSession.token == session))
+        if exist is None:
+            raise HTTPException(401, detail="登录态不存在")
+        if exist.expires_at <= now_bj():
+            raise HTTPException(401, "登录已过期,请重新登录")
+        return {"detail": "通过"}
+
+
+@app.get("/members", dependencies=[Depends(require_login)])
 def find_members(last4: str):
     with Session(engine) as s:
         li = []
@@ -75,7 +103,7 @@ def find_members(last4: str):
     return li
 
 
-@app.post("/transactions")
+@app.post("/transactions", dependencies=[Depends(require_login)])
 def cost(conque: ConsumeRequest):
     with Session(engine) as s:
         exist = s.scalar(
@@ -129,7 +157,7 @@ def cost(conque: ConsumeRequest):
             return {"personyuefen": bal}
 
 
-@app.get("/transactions")
+@app.get("/transactions", dependencies=[Depends(require_login)] )
 def list_transactions(member_id: int | None = None):
     with Session(engine) as s:
         li = []
@@ -180,7 +208,7 @@ def list_transactions(member_id: int | None = None):
                 return st
 
 
-@app.post("/recharge")
+@app.post("/recharge", dependencies=[Depends(require_login)])
 def recharge(conque: RechargeRequest):
     with Session(engine) as s:
         exist = s.scalar(
@@ -254,7 +282,7 @@ def recharge(conque: RechargeRequest):
             return {"personyuefen": balance, "personid": exist.member_id}
 
 
-@app.get("/recharge_preview")
+@app.get("/recharge_preview", dependencies=[Depends(require_login)])
 def daozhang(amount: int):
     with Session(engine) as s:
         if amount <= 0:
@@ -267,7 +295,7 @@ def daozhang(amount: int):
     return {"zengsongfen": bonus, "daozhangfen": daozhang}
 
 
-@app.post("/void")
+@app.post("/void", dependencies=[Depends(require_login)])
 def chexiao(cx: ChexiaoRequest):
     with Session(engine) as s:
         exist = s.scalar(
@@ -311,7 +339,7 @@ def chexiao(cx: ChexiaoRequest):
             return {"personyuefen": personyuefen}
 
 
-@app.post("/refund")
+@app.post("/refund", dependencies=[Depends(require_login)])
 def qingling(zero: QinglingRequest):
     with Session(engine) as s:
         bal = s.scalar(
@@ -350,6 +378,28 @@ def qingling(zero: QinglingRequest):
             except IntegrityError as e:
                 raise HTTPException(400, detail=e.orig.args[0])
             return {"personyuefen": 0}
+
+
+@app.post("/login")
+def denglu(mima: DengluRequest, response: Response):
+    if not bcrypt.checkpw(mima.password.encode(), config.shop_password_hash.encode()):
+        raise HTTPException(401, detail="密码错误")
+    token = secrets.token_urlsafe(32)
+    expires_at = (
+        datetime.now(timezone(timedelta(hours=8))) + timedelta(days=30)
+    ).strftime("%Y-%m-%d %H:%M:%S")
+    with Session(engine) as s:
+        l = LoginSession(token=token, expires_at=expires_at)
+        s.add(l)
+        s.commit()
+        response.set_cookie(
+            key="session",
+            value=token,
+            httponly=True,
+            samesite="lax",
+            max_age=2592000,
+        )
+        return {"detail": "登录成功"}
 
 
 if __name__ == "__main__":

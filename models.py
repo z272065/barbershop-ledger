@@ -52,3 +52,9 @@ class Transaction(Base):
     reverses_id: Mapped[int | None] = mapped_column(ForeignKey("transactions.id"))
     occurred_at: Mapped[str] = mapped_column(String(50))
     recorded_at: Mapped[str] = mapped_column(String(50), default=now_bj)
+
+
+class LoginSession(Base):
+    __tablename__ = "sessions"
+    token: Mapped[str] = mapped_column(String(50), primary_key=True)
+    expires_at: Mapped[str] = mapped_column(String(50))
