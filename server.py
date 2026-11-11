@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from models import Member, Transaction, Service, Setting, LoginSession, now_bj
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from datetime import datetime, timezone, timedelta
+from fastapi.staticfiles import StaticFiles
 
 
 class AppConfig(BaseSettings):
@@ -79,9 +80,7 @@ def require_login(session: str | None = Cookie(default=None)):
 
 
 def get_bonus_rate(s):
-    raw = s.scalar(
-        select(Setting.value).where(Setting.key == "recharge_bonus_rate")
-    )
+    raw = s.scalar(select(Setting.value).where(Setting.key == "recharge_bonus_rate"))
     if raw is None or not (raw.isascii() and raw.isdigit()):
         raise HTTPException(400, detail="充值赠送率配置缺失或非法")
     rate = int(raw)
@@ -179,7 +178,7 @@ def cost(conque: ConsumeRequest):
             return {"personyuefen": bal}
 
 
-@app.get("/transactions", dependencies=[Depends(require_login)] )
+@app.get("/transactions", dependencies=[Depends(require_login)])
 def list_transactions(member_id: int | None = None):
     with Session(engine) as s:
         li = []
@@ -253,9 +252,7 @@ def recharge(conque: RechargeRequest):
                     raise HTTPException(400, detail="新顾客姓名不能为空")
                 if not (phone.isascii() and phone.isdigit() and len(phone) == 11):
                     raise HTTPException(400, detail="新顾客手机号必须是11位纯数字")
-                person = Member(
-                    name=name, phone=phone, created_at=now_bj()
-                )
+                person = Member(name=name, phone=phone, created_at=now_bj())
                 s.add(person)
                 s.flush()
                 person_id = person.id
@@ -425,6 +422,9 @@ def denglu(mima: DengluRequest, response: Response):
             max_age=2592000,
         )
         return {"detail": "登录成功"}
+
+
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 
 if __name__ == "__main__":

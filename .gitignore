@@ -12,3 +12,5 @@
 !models.py
 !server.py
 !backup_shop.py
+!static/
+!static/index.html
