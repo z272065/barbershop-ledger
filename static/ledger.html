@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流水</title>
+</head>
+<body>
+    <form id="form">
+        <input id="input" type="text" placeholder="输入手机尾号或姓名">
+        <button id="submit_button" type="submit">查找</button>
+    </form>
+    <div id="huiyuansousuojieguo"></div>
+    <div id="quandianliushui"></div>
+</body>
+<script>
+    const form = document.querySelector("#form")
+    const input = document.querySelector("#input")
+    const huiyuansousuojieguo = document.querySelector("#huiyuansousuojieguo")
+    const quandianliushui = document.querySelector("#quandianliushui")
+
+    fetch("/transactions").then(function (response) {
+            if (response.status === 401) {
+                window.location.href = "/index.html"
+            }
+            return response.json()
+        }).then(function (data) {
+            if (data.length === 0) {
+                quandianliushui.innerHTML="今日暂无流水"
+            } else {
+                let html = ""
+                for (let index = 0; index < data.length; index++) {
+                    let row = data[index]
+                    let money = (row.balance_delta / 100).toFixed(2)
+                    if (row.balance_delta > 0) {
+                        money = "+" + money
+                    }
+                    let type = row.type
+                    let time = row.occurred_at
+                    let name = row.name
+                    let phone = row.phone
+                    html += `<div>${time} ${type} ${money} ${name} ${phone}</div>`
+                }
+                quandianliushui.innerHTML = html
+            }
+        })
+
+    form.addEventListener('submit',function(response){
+        response.preventDefault()
+        let shuru= input.value.trim()
+        let allDigit = true
+        let url
+        if ( shuru === '') {
+            alert("未输入尾号或姓名")
+            return
+        }
+        for (let i = 0; i < shuru.length; i++) {
+            if (!"0123456789".includes(shuru[i])) {
+                allDigit = false
+            }
+        }
+        if (shuru.length != 4 && allDigit){
+            alert("请输入四位纯数字手机尾号")
+            return
+        }
+        if (shuru.length===4 && allDigit) {
+            url = "/members?last4=" + shuru
+        } else {
+            url = "/members?name=" + encodeURIComponent(shuru)
+        }
+        fetch(url).then(function(response){
+            if (response.status==401){
+                window.location.href = "/index.html"
+            }
+            return response.json()
+        }).then(function(people){
+            if (people.length === 0){
+                huiyuansousuojieguo.innerHTML = "没有匹配的会员或者输入有错误"
+                return
+            }
+            let html = ""
+            for (let index = 0; index < people.length; index++) {
+                let row = people[index]
+                let name = row.personname
+                let money = (row.personmoneyfen / 100).toFixed(2)
+                let phone = row.personphone
+                html += `<div><a href="/member.html?member_id=${row.personid}">${name} ${phone} ${money}</a></div>`
+            }
+            huiyuansousuojieguo.innerHTML = html
+        })
+    })
+</script>
+</html>
