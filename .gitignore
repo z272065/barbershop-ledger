@@ -13,4 +13,13 @@
 !server.py
 !backup_shop.py
 !static/
+!static/css/
+!static/js/
 !static/index.html
+!static/home.html
+!static/ledger.html
+!static/member.html
+!static/checkout.html
+!static/recharge.html
+!static/css/style.css
+!static/js/common.js

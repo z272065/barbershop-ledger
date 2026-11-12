@@ -26,7 +26,7 @@
             if (response.ok) {
                 fetch("/transactions").then(function(response){
                     if(response.ok){
-                        alert(response.status)
+                        window.location.href = "/home.html"
                     }
                 })
             }else{
