@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>会员</title>
+</head>
+<body>
+    <a href="/ledger.html">返回流水页</a>
+    <div id="huiyuanxinxi"></div>
+    <div id="liushui"></div>
+</body>
+<script>
+    const huiyuanxinxi = document.querySelector("#huiyuanxinxi")
+    const liushui = document.querySelector("#liushui")
+    const params = new URLSearchParams(window.location.search)
+    const bianhao = params.get("member_id")
+    if (bianhao === null || bianhao.trim() === "") {
+        liushui.innerHTML = "请回到流水页重新查找会员"
+    } else {
+        let allDigit = true
+        for (let i = 0; i < bianhao.length; i++) {
+            if (!"0123456789".includes(bianhao[i])) {
+                allDigit = false
+            }
+        }
+        if (!allDigit) {
+            liushui.innerHTML = "会员信息有误，请回到流水页重新查找"
+        } else {
+            fetch("/transactions?member_id=" + encodeURIComponent(bianhao))
+                .then(function (response) {
+                    if (response.status === 401) {
+                        window.location.href = "/index.html"
+                        return new Promise(function () {})
+                    }
+                    return response.json().then(function (body) {
+                        return { status: response.status, body: body }
+                    })
+                }).then(function (result) {
+                    if (result.status === 404) {
+                        liushui.innerHTML = result.body.detail
+                        return
+                    }
+                    let data = result.body
+                    if (data.length === 0) {
+                        liushui.innerHTML = "该会员暂无流水"
+                        return
+                    }
+                    let first = data[0]
+                    huiyuanxinxi.innerHTML = `${first.name} ${first.phone}`
+                    let html = ""
+                    for (let index = 0; index < data.length; index++) {
+                        let row = data[index]
+                        let money = (row.balance_delta / 100).toFixed(2)
+                        if (row.balance_delta > 0) {
+                            money = "+" + money
+                        }
+                        html += `<div>${row.occurred_at} ${row.type} ${money}</div>`
+                    }
+                    liushui.innerHTML = html
+                }).catch(function () {
+                    liushui.innerHTML = "网络错误，请稍后重试"
+                })
+        }
+    }
+</script>
+</html>

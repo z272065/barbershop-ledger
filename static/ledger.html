@@ -6,6 +6,7 @@
     <title>流水</title>
 </head>
 <body>
+    <a href="/home.html">返回首页</a>
     <form id="form">
         <input id="input" type="text" placeholder="输入手机尾号或姓名">
         <button id="submit_button" type="submit">查找</button>
@@ -75,7 +76,7 @@
             return response.json()
         }).then(function(people){
             if (people.length === 0){
-                huiyuansousuojieguo.innerHTML = "没有匹配的会员或者输入有错误"
+                huiyuansousuojieguo.innerHTML = "没有这个会员或者输入有错误"
                 return
             }
             let html = ""
