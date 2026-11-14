@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>充值</title>
+</head>
+<body>
+    <a href="/home.html">返回首页</a>
+    <a id="xuanzehuiyuan" href="/ledger.html?from=recharge">老会员充值</a>
+    <a id="tianxieziliao" href="/recharge.html">新会员充值</a>
+    <div id="huiyuanxinxi"></div>
+    <form id="chongzhiform">
+        <div id="huiyuanziliao">
+            <input id="nameInput" type="text" autocomplete="off" placeholder="会员姓名">
+            <input id="phoneInput" type="text" inputmode="numeric" autocomplete="off" placeholder="11位手机号">
+        </div>
+        <input id="jine" type="text" inputmode="decimal" autocomplete="off" placeholder="实收金额（元）">
+        <button id="yulanbutton" type="button">查看到账</button>
+        <button id="chongzhibutton" type="submit" disabled>确认充值</button>
+    </form>
+    <div id="yulanjieguo"></div>
+    <div id="chongzhijieguo"></div>
+</body>
+<script>
+    const chongzhiform = document.querySelector("#chongzhiform")
+    const huiyuanziliao = document.querySelector("#huiyuanziliao")
+    const nameInput = document.querySelector("#nameInput")
+    const phoneInput = document.querySelector("#phoneInput")
+    const jine = document.querySelector("#jine")
+    const yulanbutton = document.querySelector("#yulanbutton")
+    const chongzhibutton = document.querySelector("#chongzhibutton")
+    const yulanjieguo = document.querySelector("#yulanjieguo")
+    const chongzhijieguo = document.querySelector("#chongzhijieguo")
+    const huiyuanxinxi = document.querySelector("#huiyuanxinxi")
+    const xuanzehuiyuan = document.querySelector("#xuanzehuiyuan")
+    const tianxieziliao = document.querySelector("#tianxieziliao")
+    const params = new URLSearchParams(window.location.search)
+    const bianhao = params.get("member_id")
+    // 同一个充值接口：有 member_id 就直接充值，没有则同时建立会员档案。
+    const hasMemberId = bianhao !== null && bianhao.trim() !== ""
+    document.title = hasMemberId ? "老会员充值" : "新会员充值"
+    let memberReady = !hasMemberId
+    let currentName = null
+    let currentPhone = null
+    let currentBalance = 0
+    // 只有当前金额完成预览后，才允许确认充值。
+    let previewedAmount = null
+    // 同一笔操作失败重试沿用原 ID；成功后立即换新。
+    let rechargeRequestId = createRequestId()
+
+    function createRequestId() {
+        if (window.crypto && typeof window.crypto.randomUUID === "function") {
+            return window.crypto.randomUUID()
+        }
+        return "web-" + Date.now().toString(36) + "-" +
+            Math.random().toString(36).slice(2) + "-" +
+            Math.random().toString(36).slice(2)
+    }
+
+    function formatFen(fen) {
+        return (fen / 100).toFixed(2)
+    }
+
+    function parseFen(value) {
+        const text = value.trim()
+        if (!/^(0|[1-9]\d*)(\.\d{1,2})?$/.test(text)) {
+            return null
+        }
+        const parts = text.split(".")
+        const fen = Number(parts[0]) * 100 + Number(((parts[1] || "") + "00").slice(0, 2))
+        if (!Number.isSafeInteger(fen) || fen <= 0) {
+            return null
+        }
+        return fen
+    }
+
+    function errorText(body) {
+        if (body && typeof body.detail === "string") {
+            return body.detail
+        }
+        return "操作失败，请稍后重试"
+    }
+
+    function renderMember() {
+        if (currentName === null && currentPhone === null) {
+            huiyuanxinxi.textContent = "会员编号：" + bianhao + "，余额：" + formatFen(currentBalance) + "元"
+        } else {
+            huiyuanxinxi.textContent = (currentName || "") + " " + (currentPhone || "") +
+                "，余额：" + formatFen(currentBalance) + "元"
+        }
+    }
+
+    // 统一处理登录失效和 JSON，下面只写各接口的业务分支。
+    function fetchJson(url, options) {
+        return fetch(url, options).then(function (response) {
+            if (response.status === 401) {
+                window.location.href = "/index.html"
+                return new Promise(function () {})
+            }
+            return response.json().then(function (body) {
+                return { status: response.status, body: body }
+            })
+        })
+    }
+
+    if (hasMemberId) {
+        let allDigit = true
+        for (let i = 0; i < bianhao.length; i++) {
+            if (!"0123456789".includes(bianhao[i])) {
+                allDigit = false
+            }
+        }
+        if (!allDigit || !Number.isSafeInteger(Number(bianhao))) {
+            huiyuanxinxi.textContent = "会员信息有误，请重新选择会员"
+            chongzhiform.style.display = "none"
+        } else {
+            huiyuanziliao.style.display = "none"
+            try {
+                const cached = JSON.parse(sessionStorage.getItem("selected_member_recharge"))
+                if (cached && String(cached.personid) === bianhao) {
+                    currentName = cached.personname
+                    currentPhone = cached.personphone
+                    currentBalance = cached.personmoneyfen
+                }
+            } catch (error) {
+            }
+            renderMember()
+            fetchJson("/transactions?member_id=" + encodeURIComponent(bianhao))
+                .then(function (result) {
+                    if (result.status === 404) {
+                        huiyuanxinxi.textContent = errorText(result.body)
+                        chongzhiform.style.display = "none"
+                        return
+                    }
+                    if (result.status !== 200) {
+                        chongzhijieguo.textContent = errorText(result.body)
+                        return
+                    }
+                    const data = result.body
+                    let balance = 0
+                    for (let index = 0; index < data.length; index++) {
+                        balance += data[index].balance_delta
+                    }
+                    currentBalance = balance
+                    if (data.length > 0) {
+                        currentName = data[0].name
+                        currentPhone = data[0].phone
+                    }
+                    memberReady = true
+                    renderMember()
+                }).catch(function () {
+                    memberReady = false
+                    chongzhijieguo.textContent = "网络错误，请稍后重试"
+                })
+        }
+    } else {
+        tianxieziliao.style.display = "none"
+        huiyuanxinxi.textContent = "请填写会员姓名和手机号"
+    }
+
+    jine.addEventListener("input", function () {
+        previewedAmount = null
+        chongzhibutton.disabled = true
+        yulanjieguo.textContent = ""
+    })
+
+    // 预览期间锁定金额，避免旧响应返回时输入框已经是另一笔金额。
+    yulanbutton.addEventListener("click", function () {
+        const amount = parseFen(jine.value)
+        if (amount === null) {
+            yulanjieguo.textContent = "请输入大于0、最多两位小数的充值金额"
+            chongzhibutton.disabled = true
+            return
+        }
+        previewedAmount = null
+        chongzhibutton.disabled = true
+        yulanbutton.disabled = true
+        jine.disabled = true
+        yulanjieguo.textContent = ""
+        fetchJson("/recharge_preview?amount=" + encodeURIComponent(amount))
+            .then(function (result) {
+                if (result.status !== 200) {
+                    yulanjieguo.textContent = errorText(result.body)
+                    return
+                }
+                previewedAmount = amount
+                yulanjieguo.textContent = "实收：" + formatFen(amount) + "元，赠送：" +
+                    formatFen(result.body.zengsongfen) + "元，到账：" +
+                    formatFen(result.body.daozhangfen) + "元"
+                chongzhibutton.disabled = false
+            }).catch(function () {
+                yulanjieguo.textContent = "网络错误，请稍后重试"
+            }).finally(function () {
+                yulanbutton.disabled = false
+                jine.disabled = false
+            })
+    })
+
+    chongzhiform.addEventListener("submit", function (event) {
+        event.preventDefault()
+        if (!memberReady) {
+            chongzhijieguo.textContent = "会员信息尚未确认，请刷新页面重试"
+            return
+        }
+        const amount = parseFen(jine.value)
+        if (amount === null || amount !== previewedAmount) {
+            chongzhijieguo.textContent = "请先查看到账，再确认充值"
+            return
+        }
+        const requestBody = {
+            request_id: rechargeRequestId,
+            amount: amount
+        }
+        if (hasMemberId) {
+            requestBody.member_id = Number(bianhao)
+        } else {
+            const name = nameInput.value.trim()
+            const phone = phoneInput.value.trim()
+            if (name === "") {
+                chongzhijieguo.textContent = "新顾客姓名不能为空"
+                return
+            }
+            if (!/^[0-9]{11}$/.test(phone)) {
+                chongzhijieguo.textContent = "新顾客手机号必须是11位纯数字"
+                return
+            }
+            requestBody.name = name
+            requestBody.phone = phone
+        }
+        chongzhibutton.disabled = true
+        yulanbutton.disabled = true
+        jine.disabled = true
+        nameInput.disabled = true
+        phoneInput.disabled = true
+        chongzhijieguo.textContent = ""
+        fetchJson("/recharge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+        }).then(function (result) {
+            if (result.status !== 200) {
+                chongzhijieguo.textContent = errorText(result.body)
+                return
+            }
+            currentBalance = result.body.personyuefen
+            rechargeRequestId = createRequestId()
+            previewedAmount = null
+            yulanjieguo.textContent = ""
+            jine.value = ""
+            if (hasMemberId) {
+                renderMember()
+            } else {
+                chongzhiform.style.display = "none"
+                huiyuanxinxi.textContent = "会员编号：" + result.body.personid +
+                    "，余额：" + formatFen(currentBalance) + "元"
+            }
+            chongzhijieguo.textContent = "充值成功，余额：" + formatFen(currentBalance) + "元"
+        }).catch(function () {
+            chongzhijieguo.textContent = "网络错误，请稍后重试"
+        }).finally(function () {
+            yulanbutton.disabled = false
+            jine.disabled = false
+            nameInput.disabled = false
+            phoneInput.disabled = false
+            chongzhibutton.disabled = previewedAmount === null
+        })
+    })
+</script>
+</html>
