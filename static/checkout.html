@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>结账</title>
+</head>
+<body>
+    <a href="/home.html">返回首页</a>
+    <a href="/ledger.html?from=checkout">重新选择会员</a>
+    <div id="huiyuanxinxi"></div>
+    <form id="jiezhangform">
+        <input id="jine" type="text" inputmode="decimal" autocomplete="off" placeholder="消费金额（元）">
+        <button id="jiezhangbutton" type="submit">确认结账</button>
+    </form>
+    <div id="jiezhangjieguo"></div>
+    <hr>
+    <button id="tuikabutton" type="button">退卡清零</button>
+    <div id="tuikajieguo"></div>
+</body>
+<script>
+    const jiezhangform = document.querySelector("#jiezhangform")
+    const jine = document.querySelector("#jine")
+    const jiezhangbutton = document.querySelector("#jiezhangbutton")
+    const jiezhangjieguo = document.querySelector("#jiezhangjieguo")
+    const tuikabutton = document.querySelector("#tuikabutton")
+    const tuikajieguo = document.querySelector("#tuikajieguo")
+    const huiyuanxinxi = document.querySelector("#huiyuanxinxi")
+    const params = new URLSearchParams(window.location.search)
+    const bianhao = params.get("member_id")
+
+    function createRequestId() {
+        if (window.crypto && typeof window.crypto.randomUUID === "function") {
+            return window.crypto.randomUUID()
+        }
+        return "web-" + Date.now().toString(36) + "-" +
+            Math.random().toString(36).slice(2) + "-" +
+            Math.random().toString(36).slice(2)
+    }
+
+    function formatFen(fen) {
+        return (fen / 100).toFixed(2)
+    }
+
+    function parseFen(value) {
+        const text = value.trim()
+        if (!/^(0|[1-9]\d*)(\.\d{1,2})?$/.test(text)) {
+            return null
+        }
+        const parts = text.split(".")
+        const fen = Number(parts[0]) * 100 + Number(((parts[1] || "") + "00").slice(0, 2))
+        if (!Number.isSafeInteger(fen) || fen <= 0) {
+            return null
+        }
+        return fen
+    }
+
+    function errorText(body) {
+        if (body && typeof body.detail === "string") {
+            return body.detail
+        }
+        return "操作失败，请稍后重试"
+    }
+
+    // 统一处理登录失效和 JSON，下面只写各接口的业务分支。
+    function fetchJson(url, options) {
+        return fetch(url, options).then(function (response) {
+            if (response.status === 401) {
+                window.location.href = "/index.html"
+                return new Promise(function () {})
+            }
+            return response.json().then(function (body) {
+                return { status: response.status, body: body }
+            })
+        })
+    }
+
+    if (bianhao === null || bianhao.trim() === "") {
+        jiezhangform.style.display = "none"
+        tuikabutton.style.display = "none"
+        window.location.replace("/ledger.html?from=checkout")
+    } else {
+        let allDigit = true
+        for (let i = 0; i < bianhao.length; i++) {
+            if (!"0123456789".includes(bianhao[i])) {
+                allDigit = false
+            }
+        }
+        if (!allDigit || !Number.isSafeInteger(Number(bianhao))) {
+            huiyuanxinxi.textContent = "会员信息有误，请重新选择会员"
+            jiezhangform.style.display = "none"
+            tuikabutton.style.display = "none"
+        } else {
+            let currentName = null
+            let currentPhone = null
+            let currentBalance = 0
+            let memberReady = false
+            let refundSucceeded = false
+            // 同一笔操作失败重试沿用原 ID；成功后立即换新。
+            let checkoutRequestId = createRequestId()
+            let refundRequestId = createRequestId()
+
+            try {
+                const cached = JSON.parse(sessionStorage.getItem("selected_member_checkout"))
+                if (cached && String(cached.personid) === bianhao) {
+                    currentName = cached.personname
+                    currentPhone = cached.personphone
+                    currentBalance = cached.personmoneyfen
+                }
+            } catch (error) {
+            }
+
+            function renderMember() {
+                if (currentName === null && currentPhone === null) {
+                    huiyuanxinxi.textContent = "会员编号：" + bianhao + "，余额：" + formatFen(currentBalance) + "元"
+                } else {
+                    huiyuanxinxi.textContent = (currentName || "") + " " + (currentPhone || "") +
+                        "，余额：" + formatFen(currentBalance) + "元"
+                }
+            }
+
+            renderMember()
+            fetchJson("/transactions?member_id=" + encodeURIComponent(bianhao))
+                .then(function (result) {
+                    if (result.status === 404) {
+                        huiyuanxinxi.textContent = errorText(result.body)
+                        jiezhangform.style.display = "none"
+                        tuikabutton.style.display = "none"
+                        return
+                    }
+                    if (result.status !== 200) {
+                        jiezhangjieguo.textContent = errorText(result.body)
+                        return
+                    }
+                    const data = result.body
+                    let balance = 0
+                    for (let index = 0; index < data.length; index++) {
+                        balance += data[index].balance_delta
+                    }
+                    currentBalance = balance
+                    if (data.length > 0) {
+                        currentName = data[0].name
+                        currentPhone = data[0].phone
+                    }
+                    memberReady = true
+                    renderMember()
+                }).catch(function () {
+                    memberReady = false
+                    jiezhangjieguo.textContent = "网络错误，请稍后重试"
+                })
+
+            jiezhangform.addEventListener("submit", function (event) {
+                event.preventDefault()
+                if (!memberReady) {
+                    jiezhangjieguo.textContent = "会员信息尚未确认，请刷新页面重试"
+                    return
+                }
+                const amount = parseFen(jine.value)
+                if (amount === null) {
+                    jiezhangjieguo.textContent = "请输入大于0、最多两位小数的消费金额"
+                    return
+                }
+                jiezhangbutton.disabled = true
+                jiezhangjieguo.textContent = ""
+                fetchJson("/transactions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        amount: amount,
+                        member_id: Number(bianhao),
+                        request_id: checkoutRequestId
+                    })
+                }).then(function (result) {
+                    if (result.status !== 200) {
+                        jiezhangjieguo.textContent = errorText(result.body)
+                        return
+                    }
+                    currentBalance = result.body.personyuefen
+                    checkoutRequestId = createRequestId()
+                    renderMember()
+                    jine.value = ""
+                    tuikajieguo.textContent = ""
+                    jiezhangjieguo.textContent = "结账成功，余额：" + formatFen(currentBalance) + "元"
+                }).catch(function () {
+                    jiezhangjieguo.textContent = "网络错误，请稍后重试"
+                }).finally(function () {
+                    jiezhangbutton.disabled = false
+                })
+            })
+
+            tuikabutton.addEventListener("click", function () {
+                if (!memberReady) {
+                    tuikajieguo.textContent = "会员信息尚未确认，请刷新页面重试"
+                    return
+                }
+                const label = currentName || "该会员"
+                if (!window.confirm("确认将" + label + "的余额" + formatFen(currentBalance) + "元清零吗？")) {
+                    return
+                }
+                tuikabutton.disabled = true
+                tuikajieguo.textContent = ""
+                fetchJson("/refund", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        member_id: Number(bianhao),
+                        request_id: refundRequestId
+                    })
+                }).then(function (result) {
+                    if (result.status !== 200) {
+                        tuikajieguo.textContent = errorText(result.body)
+                        return
+                    }
+                    currentBalance = result.body.personyuefen
+                    refundRequestId = createRequestId()
+                    refundSucceeded = true
+                    renderMember()
+                    jiezhangjieguo.textContent = ""
+                    tuikajieguo.textContent = "退卡成功，余额：" + formatFen(currentBalance) + "元"
+                }).catch(function () {
+                    tuikajieguo.textContent = "网络错误，请稍后重试"
+                }).finally(function () {
+                    tuikabutton.disabled = refundSucceeded
+                })
+            })
+        }
+    }
+</script>
+</html>
